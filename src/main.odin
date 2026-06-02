@@ -1,5 +1,6 @@
 package main
 
+import "core:fmt"
 import rl"vendor:raylib"
 import "core:math"
 
@@ -9,6 +10,9 @@ targetFPS :: 60;
 
 Boid :: struct {
     vs: [3]rl.Vector2,
+    // we need those to rotate around the local origin -> center of the triangle
+    // otherwise we will be rotating around screen origin -> upper left corner of the screen
+    base_vs: [3]rl.Vector2,
     pos: rl.Vector2,
     vel: rl.Vector2,
     a: rl.Vector2,
@@ -16,7 +20,11 @@ Boid :: struct {
 }
 
 DrawBoid :: proc(boid: Boid) {
-    rl.DrawTriangle(boid.vs[0], boid.vs[1], boid.vs[2], rl.MAROON); 
+    rl.DrawTriangle(boid.pos + boid.vs[0], boid.pos + boid.vs[1], boid.pos + boid.vs[2], rl.MAROON); 
+    fmt.printf("[BOID_POS] X: %v; Y: %v\n", boid.pos.x, boid.pos.y);
+    for v, i in boid.vs {
+        fmt.printf("[BOID_VS] VS[%v] - X: %v; Y: %v\n", i, v.x, v.y);
+    }
 }
 
 UpdateBoidPosition :: proc(boid: ^Boid, dt: f32) {
@@ -39,12 +47,6 @@ UpdateBoidPosition :: proc(boid: ^Boid, dt: f32) {
     } else if boid.pos.y < 0 {
         boid.pos.y = screenHeight;
     }
-
-    boid.vs = [3]rl.Vector2{
-            {boid.pos.x, boid.pos.y-50},
-            {boid.pos.x-50, boid.pos.y+50},
-            {boid.pos.x+50, boid.pos.y+50},
-    };
 }
 
 UpdateBoidRotation :: proc(boid: ^Boid, dt: f32) {
@@ -70,36 +72,34 @@ UpdateBoidRotation :: proc(boid: ^Boid, dt: f32) {
             boid.heading += math.sign(diff) * rotationSpeed * dt;
         }
     }
-
-    // we need those to rotate around the local origin -> center of the triangle
-    // otherwise we will be rotating around screen origin -> upper left corner of the screen
-    local_vs := [3]rl.Vector2{
-        {0, -50},
-        {-50, 50},
-        {50, 50}
-    };
     
-    for &v, i in local_vs {
+    for &v, i in boid.base_vs {
         // this is basically the formula to rotate a triangle around the origin
         // the origin in this case is the "center" of the triangle
         xdt := v.x * math.cos(boid.heading) - v.y * math.sin(boid.heading);
         ydt := v.x * math.sin(boid.heading) + v.y * math.cos(boid.heading);
-        boid.vs[i].x = xdt + boid.pos.x;
-        boid.vs[i].y = ydt + boid.pos.y;
+        rotationDt := rl.Vector2{ xdt, ydt };
+        boid.vs[i] = rotationDt
     }
 }
 
 main :: proc() {
-    acceleration : f32 = 10.0;
+    acceleration : f32 : 10.0;
+
     boid : Boid;
-    boid.pos = rl.Vector2{screenWidth/2, screenHeight/3};
+    boid.pos = rl.Vector2{screenWidth/2, screenHeight/2};
     boid.vel = rl.Vector2{0, 0};
     boid.a = rl.Vector2{0, 0};
     boid.vs = [3]rl.Vector2{
-            {boid.pos.x, boid.pos.y-50},
-            {boid.pos.x-50, boid.pos.y+50},
-            {boid.pos.x+50, boid.pos.y+50},
-        };
+        {   0, -40}, // top
+        { -30,  40}, // bottom left
+        {  30,  40}, // bottom right
+    };
+    boid.base_vs = [3]rl.Vector2{
+        {   0, -40}, // top
+        { -30,  40}, // bottom left
+        {  30,  40}, // bottom right
+    };
     boid.heading = 0.0;
     dt : f32 = 0.0;
 
