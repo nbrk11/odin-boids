@@ -1,12 +1,12 @@
 package main
 
-import "core:fmt"
 import rl"vendor:raylib"
 import "core:math"
+import rand"core:math/rand"
 
-screenWidth :: 800;
-screenHeight :: 600;
-targetFPS :: 60;
+SCREEN_WIDTH :: 800;
+SCREEN_HEIGHT :: 600;
+TARGET_FPS :: 60;
 
 Boid :: struct {
     vs: [3]rl.Vector2,
@@ -15,41 +15,44 @@ Boid :: struct {
     base_vs: [3]rl.Vector2,
     pos: rl.Vector2,
     vel: rl.Vector2,
-    a: rl.Vector2,
-    heading: f32
+    heading: f32,
+    vision_range: f32,
+    protected_range: f32,
 }
 
-DrawBoid :: proc(boid: Boid) {
+draw_boid :: proc(boid: Boid) {
     rl.DrawTriangle(boid.pos + boid.vs[0], boid.pos + boid.vs[1], boid.pos + boid.vs[2], rl.MAROON); 
-    fmt.printf("[BOID_POS] X: %v; Y: %v\n", boid.pos.x, boid.pos.y);
-    for v, i in boid.vs {
-        fmt.printf("[BOID_VS] VS[%v] - X: %v; Y: %v\n", i, v.x, v.y);
-    }
+    // fmt.printf("[BOID_POS] X: %v; Y: %v\n", boid.pos.x, boid.pos.y);
+    // for v, i in boid.vs {
+    //     fmt.printf("[BOID_VS] VS[%v] - X: %v; Y: %v\n", i, v.x, v.y);
+    // }
 }
 
-UpdateBoidPosition :: proc(boid: ^Boid, dt: f32) {
+draw_debug_visuals :: proc(boid: Boid) {
+    rl.DrawCircleLinesV(boid.pos, boid.vision_range, rl.GREEN);
+    rl.DrawCircleLinesV(boid.pos, boid.protected_range, rl.RED);
+}
+
+update_boid_position :: proc(boid: ^Boid, dt: f32) {
     friction := rl.Vector2{0.98, 0.98};
 
-    boid.vel.x += boid.a.x;
-    boid.vel.y += boid.a.y;
-    boid.vel *= friction;
     boid.pos.x += boid.vel.x * dt; 
     boid.pos.y += boid.vel.y * dt; 
 
-    if boid.pos.x > screenWidth {
+    if boid.pos.x > SCREEN_WIDTH {
         boid.pos.x = 0;
     } else if boid.pos.x < 0 {
-        boid.pos.x = screenWidth;
+        boid.pos.x = SCREEN_WIDTH;
     }
 
-    if boid.pos.y > screenHeight{
+    if boid.pos.y > SCREEN_HEIGHT{
         boid.pos.y = 0;
     } else if boid.pos.y < 0 {
-        boid.pos.y = screenHeight;
+        boid.pos.y = SCREEN_HEIGHT;
     }
 }
 
-UpdateBoidRotation :: proc(boid: ^Boid, dt: f32) {
+update_boid_rotation :: proc(boid: ^Boid, dt: f32) {
     speed := math.sqrt(boid.vel.x * boid.vel.x + boid.vel.y * boid.vel.y)
     rotationSpeed : f32 = 6;
     targetHeading : f32;
@@ -83,13 +86,24 @@ UpdateBoidRotation :: proc(boid: ^Boid, dt: f32) {
     }
 }
 
+create_boid_at_random_position :: proc() -> (boid: Boid) {  
+    boundaries :: [2]rl.Vector2{
+        { 60, 80 },
+        { SCREEN_WIDTH - 60, SCREEN_HEIGHT - 80 },
+    }
+    
+    return
+}
+
 main :: proc() {
     acceleration : f32 : 10.0;
+    velocity ::  rl.Vector2{ 0, 0 };
 
     boid : Boid;
-    boid.pos = rl.Vector2{screenWidth/2, screenHeight/2};
-    boid.vel = rl.Vector2{0, 0};
-    boid.a = rl.Vector2{0, 0};
+    boid.pos = rl.Vector2{SCREEN_WIDTH/2, SCREEN_HEIGHT/2};
+    boid.vel = velocity; 
+    // boid height = 80
+    // boid width = 60
     boid.vs = [3]rl.Vector2{
         {   0, -40}, // top
         { -30,  40}, // bottom left
@@ -101,40 +115,42 @@ main :: proc() {
         {  30,  40}, // bottom right
     };
     boid.heading = 0.0;
+    boid.vision_range = 200.0;
+    boid.protected_range = 80.0;
     dt : f32 = 0.0;
 
-    rl.InitWindow(screenWidth, screenHeight, "Window");
+    rl.InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Window");
 
-    rl.SetTargetFPS(targetFPS);
+    rl.SetTargetFPS(TARGET_FPS);
 
     for !rl.WindowShouldClose() {
         dt = rl.GetFrameTime();
-        boid.a = rl.Vector2{0, 0};
 
-        if rl.IsKeyDown(rl.KeyboardKey.RIGHT)  {
-            boid.a.x += acceleration;
-        }
+        // if rl.IsKeyDown(rl.KeyboardKey.RIGHT)  {
+        //     boid.a.x += acceleration;
+        // }
 
-        if rl.IsKeyDown(rl.KeyboardKey.LEFT) {
-            boid.a.x -= acceleration;
-        }
+        // if rl.IsKeyDown(rl.KeyboardKey.LEFT) {
+        //     boid.a.x -= acceleration;
+        // }
 
-        if rl.IsKeyDown(rl.KeyboardKey.DOWN) {
-            boid.a.y += acceleration;
-        }
+        // if rl.IsKeyDown(rl.KeyboardKey.DOWN) {
+        //     boid.a.y += acceleration;
+        // }
 
-        if rl.IsKeyDown(rl.KeyboardKey.UP) {
-            boid.a.y -= acceleration;
-        }
+        // if rl.IsKeyDown(rl.KeyboardKey.UP) {
+        //     boid.a.y -= acceleration;
+        // }
 
-        UpdateBoidPosition(&boid, dt);
-        UpdateBoidRotation(&boid, dt);
+        update_boid_position(&boid, dt);
+        update_boid_rotation(&boid, dt);
 
         rl.BeginDrawing(); 
 
         rl.ClearBackground(rl.RAYWHITE);
 
-        DrawBoid(boid);
+        draw_boid(boid);
+        draw_debug_visuals(boid);
 
         rl.EndDrawing();
     }
