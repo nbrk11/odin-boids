@@ -2,25 +2,27 @@ package main
 
 import rl"vendor:raylib"
 import "core:math"
-import "core:fmt"
 import rand"core:math/rand"
+import la"core:math/linalg"
 
 SCREEN_WIDTH :: 800
 SCREEN_HEIGHT :: 600
 TARGET_FPS :: 60
 
+BOID_NUMBER :: 2
 BOID_WIDTH :: 10
 BOID_HEIGHT :: 20
-BOID_VELOCITY :: 50
+BOID_MAX_VELOCITY :: 20
+BOID_MIN_VELOCITY :: 10
 
-DEBUG_MODE :: false
+DEBUG_MODE :: true
 
 Boid :: struct {
     vs: [3]rl.Vector2,
     // we need those to rotate around the local origin -> center of the triangle
     // otherwise we will be rotating around screen origin -> upper left corner of the screen
     base_vs: [3]rl.Vector2,
-    pos: rl.Vector2,
+    using pos: rl.Vector2,
     vel: rl.Vector2,
     heading: f32,
     vision_range: f32,
@@ -42,60 +44,98 @@ draw_debug_visuals :: proc(boid: Boid) {
     }
 }
 
-update_boid_position :: proc(boid: ^Boid, dt: f32) {
-    // friction := rl.Vector2{0.98, 0.98}
+vector_distance :: proc(v1, v2: rl.Vector2) -> f32 {
+    return math.sqrt(math.pow2_f32(v2.x-v1.x) + math.pow2_f32(v2.y-v1.y))
+}
 
-    heading_vector := rl.Vector2{math.cos_f32(boid.heading-(math.PI/2.0)), math.sin_f32(boid.heading-(math.PI/2.0))}
+vector_random :: proc() -> rl.Vector2 {
+    return rl.Vector2{rand.float32(), rand.float32()}
+}
 
-    boid.pos.x += heading_vector.x * BOID_VELOCITY * dt 
-    boid.pos.y += heading_vector.y * BOID_VELOCITY * dt 
+vector_random_range :: proc(min, max: f32) -> rl.Vector2 {
+    return rl.Vector2{rand.float32_range(min, max), rand.float32_range(min, max)}
+}
 
-    if boid.pos.x > SCREEN_WIDTH {
-        boid.pos.x = 0
-    } else if boid.pos.x < 0 {
-        boid.pos.x = SCREEN_WIDTH
-    }
-
-    if boid.pos.y > SCREEN_HEIGHT{
-        boid.pos.y = 0
-    } else if boid.pos.y < 0 {
-        boid.pos.y = SCREEN_HEIGHT
+vector_random_unit :: proc() -> rl.Vector2 {
+    for {
+        v := vector_random_range(-1.0, 1.0)
+        lensq := la.vector_length(v) * la.vector_length(v)
+        if 1e-160 < lensq && lensq <= 1 {
+            return v / math.sqrt(lensq)
+        }
     }
 }
 
-update_boid_rotation :: proc(boid: ^Boid, dt: f32) {
-    speed := math.sqrt(boid.vel.x * boid.vel.x + boid.vel.y * boid.vel.y)
-    rotationSpeed : f32 = 6
-    targetHeading : f32
+vector_clamp :: proc(v: rl.Vector2, min, max: f32) -> rl.Vector2 {
+    v := v
+    length := la.vector_length(v)
 
-    // just want to check whether disabling this check will enable rotation for standing by boids
-    if speed > 0.1 {
-        offset : f32 = math.PI / 2.0
+    if length > max {
+        return (v / length) * max 
+    }
 
-        // here the velocity is the target heading
-        // we can grab the angle for which we need to rotate in radian with atan2
-        // offset needed to compensate for initial drawing of the triangle, which is pointing upwards
-        targetHeading = math.atan2(boid.vel.y, boid.vel.x) + offset
-        diff := targetHeading - boid.heading
+    if length < min {
+        return (v / length) * min
+    }
 
-        for diff > math.PI { diff -= 2 * math.PI }
-        for diff < -math.PI { diff += 2 * math.PI }
-        
-        if math.abs(diff) < rotationSpeed * dt {
-            boid.heading = targetHeading
-        } else {
-            boid.heading += math.sign(diff) * rotationSpeed * dt
-        }
-    }    
+
+    return v
+}
+
+apply_separation :: proc(b: ^Boid, boids: []Boid) {
+    close_d := rl.Vector2{0,0}
+    avoid_factor : f32 = 0.2 
+    boids_copy := boids
+
+    for nb in boids {
+        if b^ == nb { continue; }
+        if vector_distance(b.pos, nb.pos) > b.protected_range { continue; }
+
+        close_d += (b.pos - nb.pos)
+    }
+
+    b.vel += close_d*avoid_factor 
+}
+
+update_boid_position :: proc(b: Boid, dt: f32) -> Boid {
+    b := b
+    b.pos += b.vel * dt
+
+    if b.pos.x > SCREEN_WIDTH {
+        b.pos.x = 0
+    } else if b.pos.x < 0 {
+        b.pos.x = SCREEN_WIDTH
+    }
+
+    if b.pos.y > SCREEN_HEIGHT{
+        b.pos.y = 0
+    } else if b.pos.y < 0 {
+        b.pos.y = SCREEN_HEIGHT
+    }
+
+    b.vel = vector_clamp(b.vel, BOID_MIN_VELOCITY, BOID_MAX_VELOCITY)
+
+    return b
+}
+
+get_angle_from_vector :: proc(v: rl.Vector2) -> f32 {
+    return math.atan2(v.y, v.x) + math.PI/2
+}
+
+update_boid_rotation :: proc(boid: Boid, dt: f32) -> Boid {
+    boid := boid
+    angle := get_angle_from_vector(boid.vel)
 
     for &v, i in boid.base_vs {
         // this is basically the formula to rotate a triangle around the origin
         // the origin in this case is the "center" of the triangle
-        xdt := v.x * math.cos(boid.heading) - v.y * math.sin(boid.heading)
-        ydt := v.x * math.sin(boid.heading) + v.y * math.cos(boid.heading)
+        xdt := v.x * math.cos(angle) - v.y * math.sin(angle)
+        ydt := v.x * math.sin(angle) + v.y * math.cos(angle)
         rotationDt := rl.Vector2{ xdt, ydt }
         boid.vs[i] = rotationDt
     }
+
+    return boid
 }
 
 create_boid_at_random_position :: proc() -> (boid: Boid) {  
@@ -105,9 +145,8 @@ create_boid_at_random_position :: proc() -> (boid: Boid) {
     }
     random_pos := rl.Vector2{ rand.float32_range(boundaries[0].x, boundaries[1].x), rand.float32_range(boundaries[0].y, boundaries[1].y) }
 
-    boid.heading = rand.float32_range(f32(-math.PI), f32(math.PI))
     boid.pos = random_pos    
-    boid.vel = rl.Vector2{ 0, 0} 
+    boid.vel = vector_clamp(vector_random_unit(), BOID_MIN_VELOCITY, BOID_MAX_VELOCITY)
     boid.vs = [3]rl.Vector2{
         {   0, -BOID_HEIGHT/2},            // top
         { -BOID_WIDTH/2,  BOID_HEIGHT/2}, // bottom left
@@ -118,21 +157,18 @@ create_boid_at_random_position :: proc() -> (boid: Boid) {
         { -BOID_WIDTH/2,  BOID_HEIGHT/2 }, // bottom left
         {  BOID_WIDTH/2,  BOID_HEIGHT/2 }, // bottom right
     }
-    // boid.heading = 0.0
     boid.vision_range = 80.0
-    boid.protected_range = 30.0
+    boid.protected_range = 40.0
     
     return
 }
 
 main :: proc() {
-    acceleration : f32 : 10.0
     velocity ::  rl.Vector2{ 0, 0 }
-
     dt : f32 = 0.0
     dt = rl.GetFrameTime()
 
-    boids : [10]Boid
+    boids := [BOID_NUMBER]Boid{}
     for &b, i in boids {
         b = create_boid_at_random_position()
     }
@@ -140,14 +176,25 @@ main :: proc() {
     rl.InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Window")
 
     rl.SetTargetFPS(TARGET_FPS)
+    boids_slice := boids[:]
 
     for !rl.WindowShouldClose() {
         dt = rl.GetFrameTime()
 
-        for &b, i in boids {
-            update_boid_position(&b, dt)
-            update_boid_rotation(&b, dt)
+        next := boids
+
+        for i in 0..<BOID_NUMBER {
+            b := boids[i]
+
+            apply_separation(&b, boids[:])
+
+            b = update_boid_position(b, dt)
+            b = update_boid_rotation(b, dt)
+
+            next[i] = b
         }
+
+        boids = next
 
         rl.BeginDrawing()
 
