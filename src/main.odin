@@ -8,16 +8,20 @@ import la"core:math/linalg"
 
 SCREEN_WIDTH :: 800
 SCREEN_HEIGHT :: 600
+MARGIN_WIDTH :: 100
+MARGIN_HEIGHT :: 100
 TARGET_FPS :: 60
 
-BOID_NUMBER :: 50
+BOID_NUMBER :: 1000
 BOID_WIDTH :: 8
 BOID_HEIGHT :: 15
-BOID_MAX_VELOCITY :: 50
-BOID_MIN_VELOCITY :: 30
+BOID_MAX_VELOCITY :: 180
+BOID_MIN_VELOCITY :: 90
 
-AVOID_FACTOR : f32 : 0.02
+AVOID_FACTOR : f32 : 0.1
 MATCHING_FACTOR : f32 : 0.05
+CENTERING_FACTOR : f32 : 0.0005
+TURN_FACTOR : f32 : 6
 
 DEBUG_MODE :: false
 
@@ -83,17 +87,17 @@ vector_clamp :: proc(v: rl.Vector2, min, max: f32) -> rl.Vector2 {
         return (v / length) * min
     }
 
-
     return v
 }
 
 update_boids :: proc(boids: []Boid, dt: f32) {
-    close_d, vel_avg : rl.Vector2
+    close_d, vel_avg, pos_avg : rl.Vector2
     neighboring_boids : i32
 
     for &b, i in boids {
         close_d = rl.Vector2{0,0}
         vel_avg = rl.Vector2{0,0}
+        pos_avg = rl.Vector2{0,0}
         neighboring_boids = 0
 
         for nb, y in boids {
@@ -111,6 +115,7 @@ update_boids :: proc(boids: []Boid, dt: f32) {
                     close_d += dv
                 } else {
                     vel_avg += nb.vel
+                    pos_avg += nb.pos
                     neighboring_boids += 1
                     b.someone_in_protected_range = false
                 }
@@ -119,11 +124,27 @@ update_boids :: proc(boids: []Boid, dt: f32) {
 
         if neighboring_boids > 0 {
             vel_avg /= f32(neighboring_boids)
+            pos_avg /= f32(neighboring_boids)
             b.vel += (vel_avg - b.vel)*MATCHING_FACTOR
+            b.vel += (pos_avg - b.pos)*CENTERING_FACTOR
         }
 
         b.vel += (close_d*AVOID_FACTOR)
 
+        if b.pos.x > SCREEN_WIDTH - MARGIN_WIDTH {
+            b.vel.x -= TURN_FACTOR
+        }
+        if b.pos.x < MARGIN_WIDTH {
+            b.vel.x += TURN_FACTOR
+        }
+        if b.pos.y > SCREEN_HEIGHT - MARGIN_HEIGHT {
+            b.vel.y -= TURN_FACTOR 
+        }
+        if b.pos.y < MARGIN_HEIGHT {
+            b.vel.y += TURN_FACTOR
+        }
+
+        // update position
         speed := la.vector_length(b.vel)
 
         if speed < BOID_MIN_VELOCITY {
@@ -134,18 +155,6 @@ update_boids :: proc(boids: []Boid, dt: f32) {
         }
 
         b.pos += (b.vel * dt)
-
-        if b.pos.x > SCREEN_WIDTH {
-            b.pos.x = 0
-        } else if b.pos.x < 0 {
-            b.pos.x = SCREEN_WIDTH
-        }
-
-        if b.pos.y > SCREEN_HEIGHT{
-            b.pos.y = 0
-        } else if b.pos.y < 0 {
-            b.pos.y = SCREEN_HEIGHT
-        }
 
         // update rotation
         angle := get_angle_from_vector(b.vel)
@@ -184,8 +193,8 @@ create_boid_at_random_position :: proc() -> (boid: Boid) {
         { -BOID_WIDTH/2,  BOID_HEIGHT/2 }, // bottom left
         {  BOID_WIDTH/2,  BOID_HEIGHT/2 }, // bottom right
     }
-    boid.vision_range = 80.0
-    boid.protected_range = 30.0
+    boid.vision_range = 70.0
+    boid.protected_range = 15.0
     
     return
 }
