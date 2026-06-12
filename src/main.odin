@@ -1,7 +1,6 @@
 package main
 
 import rl"vendor:raylib"
-import "core:fmt"
 import "core:math"
 import rand"core:math/rand"
 import la"core:math/linalg"
@@ -13,17 +12,26 @@ MARGIN_HEIGHT :: 100
 TARGET_FPS :: 60
 
 BOID_NUMBER :: 1000
-BOID_WIDTH :: 8
-BOID_HEIGHT :: 15
+BOID_WIDTH :: 7
+BOID_HEIGHT :: 12
 BOID_MAX_VELOCITY :: 180
 BOID_MIN_VELOCITY :: 90
 
-AVOID_FACTOR : f32 : 0.1
-MATCHING_FACTOR : f32 : 0.05
-CENTERING_FACTOR : f32 : 0.0005
 TURN_FACTOR : f32 : 6
+VISION_RANGE : f32 : 70.0
+PROTECTED_RANGE : f32 : 15.0
+CENTERING_FACTOR : f32 : 0.0005
+AVOID_FACTOR : f32 : 0.05
+MATCHING_FACTOR : f32 : 0.05
+MAX_BIAS : f32 : 0.01
+BIAS_INC : f32 : 0.00004
+BIAS_VAL : f32 : 0.001
 
 DEBUG_MODE :: false
+
+ScoutGroup :: enum {
+    Right, Left
+}
 
 Boid :: struct {
     vs: [3]rl.Vector2,
@@ -33,9 +41,8 @@ Boid :: struct {
     using pos: rl.Vector2,
     vel: rl.Vector2,
     heading: f32,
-    vision_range: f32,
-    protected_range: f32,
-    someone_in_protected_range: bool
+    bias: ScoutGroup,
+    bias_val: f32
 }
 
 draw_boid :: proc(boid: Boid) {
@@ -44,12 +51,8 @@ draw_boid :: proc(boid: Boid) {
 
 draw_debug_visuals :: proc(boid: Boid) {
     if DEBUG_MODE {
-        if boid.someone_in_protected_range {
-            rl.DrawCircleLinesV(boid.pos, boid.protected_range, rl.RED)
-        } else {
-            rl.DrawCircleLinesV(boid.pos, boid.protected_range, rl.BLUE)
-        }
-        rl.DrawCircleLinesV(boid.pos, boid.vision_range, rl.GREEN)
+        rl.DrawCircleLinesV(boid.pos, PROTECTED_RANGE, rl.RED)
+        rl.DrawCircleLinesV(boid.pos, VISION_RANGE, rl.GREEN)
     }
 }
 
@@ -105,19 +108,17 @@ update_boids :: proc(boids: []Boid, dt: f32) {
 
             dv := b.pos - nb.pos
 
-            if math.abs(dv.x) < b.vision_range && math.abs(dv.y) < b.vision_range {
+            if math.abs(dv.x) < VISION_RANGE && math.abs(dv.y) < VISION_RANGE {
                 sqr_distance := la.vector_length2(dv)
-                protected_range_squared := b.protected_range*b.protected_range
-                vision_range_squared := b.vision_range*b.vision_range
+                protected_range_squared := PROTECTED_RANGE*PROTECTED_RANGE
+                vision_range_squared := VISION_RANGE*VISION_RANGE
 
-                if sqr_distance < b.protected_range*b.protected_range {
-                    b.someone_in_protected_range = true
+                if sqr_distance < PROTECTED_RANGE*PROTECTED_RANGE {
                     close_d += dv
                 } else {
                     vel_avg += nb.vel
                     pos_avg += nb.pos
                     neighboring_boids += 1
-                    b.someone_in_protected_range = false
                 }
             }
         }
@@ -142,6 +143,26 @@ update_boids :: proc(boids: []Boid, dt: f32) {
         }
         if b.pos.y < MARGIN_HEIGHT {
             b.vel.y += TURN_FACTOR
+        }
+
+        // bias
+
+        // TODO: I guess the checks for scoutgroup here can be removed
+        if b.vel.x > 0 {
+            b.bias_val = math.min(MAX_BIAS, b.bias_val + BIAS_INC)
+        } else {
+            b.bias_val = math.max(BIAS_INC, b.bias_val - BIAS_INC)
+        }
+        if b.vel.x < 0 {
+            b.bias_val = math.min(MAX_BIAS, b.bias_val + BIAS_INC)
+        } else {
+            b.bias_val = math.max(BIAS_INC, b.bias_val - BIAS_INC)
+        }
+
+        if b.bias == ScoutGroup.Right {
+            b.vel.x = (1 - b.bias_val)*b.vel.x + (b.bias_val * 1)
+        } else if b.bias == ScoutGroup.Left {
+            b.vel.x = (1 - b.bias_val)*b.vel.x + (b.bias_val * (-1))
         }
 
         // update position
@@ -193,9 +214,14 @@ create_boid_at_random_position :: proc() -> (boid: Boid) {
         { -BOID_WIDTH/2,  BOID_HEIGHT/2 }, // bottom left
         {  BOID_WIDTH/2,  BOID_HEIGHT/2 }, // bottom right
     }
-    boid.vision_range = 70.0
-    boid.protected_range = 15.0
-    
+
+    if rand.float32() > 0.5 {
+        boid.bias = ScoutGroup.Right
+    } else {
+        boid.bias = ScoutGroup.Left
+    }
+    boid.bias_val = BIAS_VAL
+
     return
 }
 
