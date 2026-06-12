@@ -17,8 +17,9 @@ BOID_MAX_VELOCITY :: 50
 BOID_MIN_VELOCITY :: 30
 
 AVOID_FACTOR : f32 : 0.02
+MATCHING_FACTOR : f32 : 0.05
 
-DEBUG_MODE :: true
+DEBUG_MODE :: false
 
 Boid :: struct {
     vs: [3]rl.Vector2,
@@ -87,10 +88,14 @@ vector_clamp :: proc(v: rl.Vector2, min, max: f32) -> rl.Vector2 {
 }
 
 update_boids :: proc(boids: []Boid, dt: f32) {
-    close_d : rl.Vector2
+    close_d, vel_avg : rl.Vector2
+    neighboring_boids : i32
 
     for &b, i in boids {
-        close_d = 0
+        close_d = rl.Vector2{0,0}
+        vel_avg = rl.Vector2{0,0}
+        neighboring_boids = 0
+
         for nb, y in boids {
             if i == y { continue; }
 
@@ -99,14 +104,22 @@ update_boids :: proc(boids: []Boid, dt: f32) {
             if math.abs(dv.x) < b.vision_range && math.abs(dv.y) < b.vision_range {
                 sqr_distance := la.vector_length2(dv)
                 protected_range_squared := b.protected_range*b.protected_range
+                vision_range_squared := b.vision_range*b.vision_range
 
                 if sqr_distance < b.protected_range*b.protected_range {
                     b.someone_in_protected_range = true
                     close_d += dv
                 } else {
+                    vel_avg += nb.vel
+                    neighboring_boids += 1
                     b.someone_in_protected_range = false
                 }
             }
+        }
+
+        if neighboring_boids > 0 {
+            vel_avg /= f32(neighboring_boids)
+            b.vel += (vel_avg - b.vel)*MATCHING_FACTOR
         }
 
         b.vel += (close_d*AVOID_FACTOR)
