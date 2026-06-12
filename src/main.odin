@@ -146,8 +146,6 @@ update_boids :: proc(boids: []Boid, dt: f32) {
         }
 
         // bias
-
-        // TODO: I guess the checks for scoutgroup here can be removed
         if b.vel.x > 0 {
             b.bias_val = math.min(MAX_BIAS, b.bias_val + BIAS_INC)
         } else {
@@ -235,12 +233,19 @@ main :: proc() {
         b = create_boid_at_random_position()
     }
 
-    rl.InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Window")
+    rl.InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Boids")
+    defer rl.CloseWindow()
 
     rl.SetTargetFPS(TARGET_FPS)
     boids_slice := boids[:]
 
     for !rl.WindowShouldClose() {
+        if rl.IsKeyPressed(rl.KeyboardKey.SPACE) {
+            for &b, i in boids {
+                b = create_boid_at_random_position()
+            }
+        }
+
         dt = rl.GetFrameTime()
 
         update_boids(boids[:], dt)
@@ -256,6 +261,4 @@ main :: proc() {
 
         rl.EndDrawing()
     }
-    
-    rl.CloseWindow()
 }
