@@ -1,6 +1,7 @@
 package main
 
 import rl"vendor:raylib"
+import "core:fmt"
 import "core:math"
 import rand"core:math/rand"
 import la"core:math/linalg"
@@ -9,11 +10,13 @@ SCREEN_WIDTH :: 800
 SCREEN_HEIGHT :: 600
 TARGET_FPS :: 60
 
-BOID_NUMBER :: 2
-BOID_WIDTH :: 10
-BOID_HEIGHT :: 20
-BOID_MAX_VELOCITY :: 20
-BOID_MIN_VELOCITY :: 10
+BOID_NUMBER :: 50
+BOID_WIDTH :: 8
+BOID_HEIGHT :: 15
+BOID_MAX_VELOCITY :: 50
+BOID_MIN_VELOCITY :: 30
+
+AVOID_FACTOR : f32 : 0.02
 
 DEBUG_MODE :: true
 
@@ -27,25 +30,26 @@ Boid :: struct {
     heading: f32,
     vision_range: f32,
     protected_range: f32,
+    someone_in_protected_range: bool
 }
 
 draw_boid :: proc(boid: Boid) {
     rl.DrawTriangle(boid.pos + boid.vs[0], boid.pos + boid.vs[1], boid.pos + boid.vs[2], rl.MAROON) 
-    // fmt.printf("[BOID_POS] X: %v Y: %v\n", boid.pos.x, boid.pos.y)
-    // for v, i in boid.vs {
-    //     fmt.printf("[BOID_VS] VS[%v] - X: %v Y: %v\n", i, v.x, v.y)
-    // }
 }
 
 draw_debug_visuals :: proc(boid: Boid) {
     if DEBUG_MODE {
+        if boid.someone_in_protected_range {
+            rl.DrawCircleLinesV(boid.pos, boid.protected_range, rl.RED)
+        } else {
+            rl.DrawCircleLinesV(boid.pos, boid.protected_range, rl.BLUE)
+        }
         rl.DrawCircleLinesV(boid.pos, boid.vision_range, rl.GREEN)
-        rl.DrawCircleLinesV(boid.pos, boid.protected_range, rl.RED)
     }
 }
 
 vector_distance :: proc(v1, v2: rl.Vector2) -> f32 {
-    return math.sqrt(math.pow2_f32(v2.x-v1.x) + math.pow2_f32(v2.y-v1.y))
+    return la.vector_length(v1 - v2)
 }
 
 vector_random :: proc() -> rl.Vector2 {
@@ -82,60 +86,70 @@ vector_clamp :: proc(v: rl.Vector2, min, max: f32) -> rl.Vector2 {
     return v
 }
 
-apply_separation :: proc(b: ^Boid, boids: []Boid) {
-    close_d := rl.Vector2{0,0}
-    avoid_factor : f32 = 0.2 
-    boids_copy := boids
+update_boids :: proc(boids: []Boid, dt: f32) {
+    close_d : rl.Vector2
 
-    for nb in boids {
-        if b^ == nb { continue; }
-        if vector_distance(b.pos, nb.pos) > b.protected_range { continue; }
+    for &b, i in boids {
+        close_d = 0
+        for nb, y in boids {
+            if i == y { continue; }
 
-        close_d += (b.pos - nb.pos)
+            dv := b.pos - nb.pos
+
+            if math.abs(dv.x) < b.vision_range && math.abs(dv.y) < b.vision_range {
+                sqr_distance := la.vector_length2(dv)
+                protected_range_squared := b.protected_range*b.protected_range
+
+                if sqr_distance < b.protected_range*b.protected_range {
+                    b.someone_in_protected_range = true
+                    close_d += dv
+                } else {
+                    b.someone_in_protected_range = false
+                }
+            }
+        }
+
+        b.vel += (close_d*AVOID_FACTOR)
+
+        speed := la.vector_length(b.vel)
+
+        if speed < BOID_MIN_VELOCITY {
+            b.vel = (b.vel/speed)*BOID_MIN_VELOCITY
+        }
+        if speed > BOID_MAX_VELOCITY {
+            b.vel = (b.vel/speed)*BOID_MAX_VELOCITY
+        }
+
+        b.pos += (b.vel * dt)
+
+        if b.pos.x > SCREEN_WIDTH {
+            b.pos.x = 0
+        } else if b.pos.x < 0 {
+            b.pos.x = SCREEN_WIDTH
+        }
+
+        if b.pos.y > SCREEN_HEIGHT{
+            b.pos.y = 0
+        } else if b.pos.y < 0 {
+            b.pos.y = SCREEN_HEIGHT
+        }
+
+        // update rotation
+        angle := get_angle_from_vector(b.vel)
+
+        for &v, i in b.base_vs {
+            // this is basically the formula to rotate a triangle around the origin
+            // the origin in this case is the "center" of the triangle
+            xdt := v.x * math.cos(angle) - v.y * math.sin(angle)
+            ydt := v.x * math.sin(angle) + v.y * math.cos(angle)
+            rotationDt := rl.Vector2{ xdt, ydt }
+            b.vs[i] = rotationDt
+        }
     }
-
-    b.vel += close_d*avoid_factor 
-}
-
-update_boid_position :: proc(b: Boid, dt: f32) -> Boid {
-    b := b
-    b.pos += b.vel * dt
-
-    if b.pos.x > SCREEN_WIDTH {
-        b.pos.x = 0
-    } else if b.pos.x < 0 {
-        b.pos.x = SCREEN_WIDTH
-    }
-
-    if b.pos.y > SCREEN_HEIGHT{
-        b.pos.y = 0
-    } else if b.pos.y < 0 {
-        b.pos.y = SCREEN_HEIGHT
-    }
-
-    b.vel = vector_clamp(b.vel, BOID_MIN_VELOCITY, BOID_MAX_VELOCITY)
-
-    return b
 }
 
 get_angle_from_vector :: proc(v: rl.Vector2) -> f32 {
     return math.atan2(v.y, v.x) + math.PI/2
-}
-
-update_boid_rotation :: proc(boid: Boid, dt: f32) -> Boid {
-    boid := boid
-    angle := get_angle_from_vector(boid.vel)
-
-    for &v, i in boid.base_vs {
-        // this is basically the formula to rotate a triangle around the origin
-        // the origin in this case is the "center" of the triangle
-        xdt := v.x * math.cos(angle) - v.y * math.sin(angle)
-        ydt := v.x * math.sin(angle) + v.y * math.cos(angle)
-        rotationDt := rl.Vector2{ xdt, ydt }
-        boid.vs[i] = rotationDt
-    }
-
-    return boid
 }
 
 create_boid_at_random_position :: proc() -> (boid: Boid) {  
@@ -158,7 +172,7 @@ create_boid_at_random_position :: proc() -> (boid: Boid) {
         {  BOID_WIDTH/2,  BOID_HEIGHT/2 }, // bottom right
     }
     boid.vision_range = 80.0
-    boid.protected_range = 40.0
+    boid.protected_range = 30.0
     
     return
 }
@@ -181,20 +195,7 @@ main :: proc() {
     for !rl.WindowShouldClose() {
         dt = rl.GetFrameTime()
 
-        next := boids
-
-        for i in 0..<BOID_NUMBER {
-            b := boids[i]
-
-            apply_separation(&b, boids[:])
-
-            b = update_boid_position(b, dt)
-            b = update_boid_rotation(b, dt)
-
-            next[i] = b
-        }
-
-        boids = next
+        update_boids(boids[:], dt)
 
         rl.BeginDrawing()
 
@@ -207,6 +208,6 @@ main :: proc() {
 
         rl.EndDrawing()
     }
-
+    
     rl.CloseWindow()
 }
