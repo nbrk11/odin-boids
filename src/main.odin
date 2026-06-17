@@ -4,6 +4,7 @@ import rl"vendor:raylib"
 import "core:math"
 import rand"core:math/rand"
 import la"core:math/linalg"
+import "core:fmt"
 
 SCREEN_WIDTH :: 800
 SCREEN_HEIGHT :: 600
@@ -11,7 +12,7 @@ MARGIN_WIDTH :: 100
 MARGIN_HEIGHT :: 100
 TARGET_FPS :: 60
 
-BOID_NUMBER :: 1000
+BOID_NUMBER :: 800
 BOID_WIDTH :: 7
 BOID_HEIGHT :: 12
 BOID_MAX_VELOCITY :: 180
@@ -29,6 +30,13 @@ BIAS_VAL : f32 : 0.001
 
 DEBUG_MODE :: false
 
+BASE_VS :: [3]rl.Vector2{
+    {   0, -BOID_HEIGHT/2 },            // top
+    { -BOID_WIDTH/2,  BOID_HEIGHT/2 }, // bottom left
+    {  BOID_WIDTH/2,  BOID_HEIGHT/2 }, // bottom right
+}
+
+
 ScoutGroup :: enum {
     Right, Left
 }
@@ -37,12 +45,10 @@ Boid :: struct {
     vs: [3]rl.Vector2,
     // we need those to rotate around the local origin -> center of the triangle
     // otherwise we will be rotating around screen origin -> upper left corner of the screen
-    base_vs: [3]rl.Vector2,
     using pos: rl.Vector2,
     vel: rl.Vector2,
-    heading: f32,
+    bias_val: f32,
     bias: ScoutGroup,
-    bias_val: f32
 }
 
 draw_boid :: proc(boid: Boid) {
@@ -111,9 +117,8 @@ update_boids :: proc(boids: []Boid, dt: f32) {
             if math.abs(dv.x) < VISION_RANGE && math.abs(dv.y) < VISION_RANGE {
                 sqr_distance := la.vector_length2(dv)
                 protected_range_squared := PROTECTED_RANGE*PROTECTED_RANGE
-                vision_range_squared := VISION_RANGE*VISION_RANGE
 
-                if sqr_distance < PROTECTED_RANGE*PROTECTED_RANGE {
+                if sqr_distance < protected_range_squared {
                     close_d += dv
                 } else {
                     vel_avg += nb.vel
@@ -146,15 +151,18 @@ update_boids :: proc(boids: []Boid, dt: f32) {
         }
 
         // bias
-        if b.vel.x > 0 {
-            b.bias_val = math.min(MAX_BIAS, b.bias_val + BIAS_INC)
-        } else {
-            b.bias_val = math.max(BIAS_INC, b.bias_val - BIAS_INC)
-        }
-        if b.vel.x < 0 {
-            b.bias_val = math.min(MAX_BIAS, b.bias_val + BIAS_INC)
-        } else {
-            b.bias_val = math.max(BIAS_INC, b.bias_val - BIAS_INC)
+        if b.bias == ScoutGroup.Right {
+            if b.vel.x > 0 {
+                b.bias_val = math.min(MAX_BIAS, b.bias_val + BIAS_INC)
+            } else {
+                b.bias_val = math.max(BIAS_INC, b.bias_val - BIAS_INC)
+            }
+        } else if b.bias == ScoutGroup.Left {
+            if b.vel.x < 0 {
+                b.bias_val = math.min(MAX_BIAS, b.bias_val + BIAS_INC)
+            } else {
+                b.bias_val = math.max(BIAS_INC, b.bias_val - BIAS_INC)
+            }
         }
 
         if b.bias == ScoutGroup.Right {
@@ -164,21 +172,13 @@ update_boids :: proc(boids: []Boid, dt: f32) {
         }
 
         // update position
-        speed := la.vector_length(b.vel)
-
-        if speed < BOID_MIN_VELOCITY {
-            b.vel = (b.vel/speed)*BOID_MIN_VELOCITY
-        }
-        if speed > BOID_MAX_VELOCITY {
-            b.vel = (b.vel/speed)*BOID_MAX_VELOCITY
-        }
-
+        b.vel = vector_clamp(b.vel, BOID_MIN_VELOCITY, BOID_MAX_VELOCITY)
         b.pos += (b.vel * dt)
 
         // update rotation
         angle := get_angle_from_vector(b.vel)
 
-        for &v, i in b.base_vs {
+        for v, i in BASE_VS {
             // this is basically the formula to rotate a triangle around the origin
             // the origin in this case is the "center" of the triangle
             xdt := v.x * math.cos(angle) - v.y * math.sin(angle)
@@ -207,11 +207,6 @@ create_boid_at_random_position :: proc() -> (boid: Boid) {
         { -BOID_WIDTH/2,  BOID_HEIGHT/2}, // bottom left
         {  BOID_WIDTH/2,  BOID_HEIGHT/2}, // bottom right
     }
-    boid.base_vs = [3]rl.Vector2{
-        {   0, -BOID_HEIGHT/2 },            // top
-        { -BOID_WIDTH/2,  BOID_HEIGHT/2 }, // bottom left
-        {  BOID_WIDTH/2,  BOID_HEIGHT/2 }, // bottom right
-    }
 
     if rand.float32() > 0.5 {
         boid.bias = ScoutGroup.Right
@@ -224,20 +219,16 @@ create_boid_at_random_position :: proc() -> (boid: Boid) {
 }
 
 main :: proc() {
-    velocity ::  rl.Vector2{ 0, 0 }
     dt : f32 = 0.0
-    dt = rl.GetFrameTime()
-
     boids := [BOID_NUMBER]Boid{}
-    for &b, i in boids {
-        b = create_boid_at_random_position()
-    }
+
 
     rl.InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Boids")
-    defer rl.CloseWindow()
-
     rl.SetTargetFPS(TARGET_FPS)
-    boids_slice := boids[:]
+    defer rl.CloseWindow()
+    defer fmt.printf("Size of Boid struct -> {0}\n", size_of(Boid))
+    defer fmt.printf("Size of ScoutGroup enum -> {0}\n", size_of(ScoutGroup))
+
 
     for !rl.WindowShouldClose() {
         if rl.IsKeyPressed(rl.KeyboardKey.SPACE) {
